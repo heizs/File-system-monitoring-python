@@ -1,0 +1,93 @@
+import os
+import win32file  # 文件类API
+import win32con  # 所有的常量
+import xlsxwriter
+import func_timeout
+import datetime
+from func_timeout import func_set_timeout
+
+cols = 4
+
+ACTIONS = {
+    1: "Created",
+    2: "Deleted",
+    3: "Updated",
+    4: "Renamed to ",
+    5: "",
+}
+
+FILE_LIST_DIRECTORY = win32con.GENERIC_READ | win32con.GENERIC_WRITE
+path_to_watch = "./"
+hDir = win32file.CreateFile(
+    path_to_watch,  # 要创建或打开的文件或设备的名称。
+    FILE_LIST_DIRECTORY,  # 请求的对文件或设备的访问权限，可以概括为读取、写入、两者或两者都不是
+    win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE,  # 请求的文件或设备的共享模式，可以是读取、写入、两者、删除、所有这些或无
+    None,  # 可选安全描述符或一个布尔值，该值确定返回的句柄是否可以由子进程继承。
+    # 如果此参数为 NULL，则 CreateFile返回的句柄不能由应用程序可能创建的任何子进程继承，
+    # 并且与返回的句柄关联的文件或设备将获得默认的安全描述符。
+    win32con.OPEN_EXISTING,  # 要对存在或不存在的文件或设备执行的操作。OPEN_EXISTING为打开文件或设备（仅当存在时）
+    win32con.FILE_FLAG_BACKUP_SEMANTICS,  # 文件或设备属性和标志FILE_ATTRIBUTE_NORMAL是文件最常见的默认值。
+    None  # 具有GENERIC_READ访问权限的模板文件的有效句柄。模板文件为正在创建的文件提供文件属性和扩展属性。
+    # 打开现有文件时，CreateFile将忽略此参数。
+)  # 资料来源https://docs.microsoft.com/zh-cn/windows/win32/api/fileapi/nf-fileapi-createfilea?redirectedfrom=MSDN
+
+
+@func_set_timeout(30)
+def Get_data(old_data):
+    print("开始时间：", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    while True:
+        results = win32file.ReadDirectoryChangesW(
+            hDir,  # handle: 要监视的目录的句柄。此目录必须以FILE_LIST_DIRECTORY(文件列表目录)访问权限打开。
+            1024,  # size: 要为结果分配的缓冲区大小。
+            True,  # bWatchSubtree: 指定ReadDirectoryChangesW函数是监视目录还是目录树。
+            win32con.FILE_NOTIFY_CHANGE_FILE_NAME |
+            win32con.FILE_NOTIFY_CHANGE_DIR_NAME |
+            win32con.FILE_NOTIFY_CHANGE_ATTRIBUTES |
+            win32con.FILE_NOTIFY_CHANGE_SIZE |
+            win32con.FILE_NOTIFY_CHANGE_LAST_WRITE |
+            win32con.FILE_NOTIFY_CHANGE_SECURITY,
+            None,
+            None)
+        # 资料来源https://docs.microsoft.com/zh-cn/windows/win32/api/winbase/nf-winbase-readdirectorychangesw?redirectedfrom=MSDN
+        for action, file in results:
+            full_filename = os.path.join(path_to_watch, file)
+            now_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            start = full_filename.rindex('\\')
+            filename = full_filename[start + 1:]
+            if action == 4:
+                print(now_time, full_filename, ACTIONS.get(action, "Unknown File"), end="")
+                old_data.append(now_time)
+                old_data.append(full_filename)
+                old_data.append(filename)
+                old_data.append(ACTIONS.get(action, "Unknown"))
+            elif action == 5:
+                print(filename)
+                old_data[-1] = old_data[-1] + filename
+            else:
+                print(now_time, full_filename, ACTIONS.get(action, "Unknown File"))
+                old_data.append(now_time)
+                old_data.append(full_filename)
+                old_data.append(filename)
+                old_data.append(ACTIONS.get(action, "Unknown"))
+
+
+if __name__ == '__main__':
+    date_time = datetime.datetime.now().strftime("%Y-%m-%d  %H︰%M︰%S")
+    report = xlsxwriter.Workbook("./" + date_time + ".xlsx")  # 创建workbook对象
+    sheet = report.add_worksheet('监控')  # 创建工作表
+    sheet.set_column('A:A', 20)  # 设置A列宽度20
+    sheet.set_column('B:B', 80)  # 设置B列宽度80
+    sheet.set_column('C:C', 30)  # 设置C列宽度30
+    sheet.set_column('D:D', 30)  # 设置C列宽度30
+    col = ("时间", "文件路径", "文件名", "变化")
+    for i in range(cols):
+        sheet.write(0, i, col[i])
+    data = []
+    try:
+        Get_data(data)
+    except func_timeout.exceptions.FunctionTimedOut:
+        print("结束时间：", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    for i in range(1, int(len(data) / cols)):
+        for j in range(cols):
+            sheet.write(i, j, data[(i - 1) * cols + j])
+    report.close()
