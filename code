@@ -52,7 +52,8 @@ def Get_data(old_data):
         for action, file in results:
             full_filename = os.path.join(path_to_watch, file)
             now_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            start = full_filename.rindex('\\')
+            print(full_filename)
+            start = full_filename.rindex('/')
             filename = full_filename[start + 1:]
             if action == 4:
                 print(now_time, full_filename, ACTIONS.get(action, "Unknown File"), end="")
